@@ -1,0 +1,295 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+import { FHE, euint32, euint8, ebool } from "@fhevm/solidity/lib/FHE.sol";
+import { SepoliaConfig } from "@fhevm/solidity/config/ZamaConfig.sol";
+
+/**
+ * @title PrivacyCreditScore
+ * @dev A confidential credit evaluation system using Fully Homomorphic Encryption
+ * @notice This contract allows users to submit encrypted financial data for credit scoring
+ *         while keeping all sensitive information private on-chain
+ */
+contract PrivacyCreditScore is SepoliaConfig {
+    
+    address public owner;
+    uint256 public totalEvaluations;
+    
+    // Credit score ranges
+    uint8 constant EXCELLENT_SCORE = 5;  // 750+
+    uint8 constant GOOD_SCORE = 4;       // 650-749
+    uint8 constant FAIR_SCORE = 3;       // 550-649
+    uint8 constant POOR_SCORE = 2;       // 450-549
+    uint8 constant BAD_SCORE = 1;        // <450
+    
+    struct CreditData {
+        euint32 encryptedIncome;        // Monthly income (encrypted)
+        euint32 encryptedDebt;          // Total debt (encrypted)
+        euint8 encryptedAge;            // Age (encrypted)
+        euint8 encryptedCreditHistory;  // Credit history length in years (encrypted)
+        euint8 encryptedPaymentHistory; // Payment history score 1-10 (encrypted)
+        bool hasSubmitted;
+        uint256 submissionTime;
+    }
+    
+    struct CreditEvaluation {
+        euint8 encryptedScore;          // Final credit score (encrypted)
+        bool isEvaluated;
+        uint256 evaluationTime;
+        ebool isApproved;               // Loan approval status (encrypted)
+    }
+    
+    mapping(address => CreditData) public creditSubmissions;
+    mapping(address => CreditEvaluation) public creditEvaluations;
+    
+    event CreditDataSubmitted(address indexed user, uint256 timestamp);
+    event CreditEvaluated(address indexed user, uint256 timestamp);
+    event LoanApprovalRequested(address indexed user, uint256 timestamp);
+    
+    modifier onlyOwner() {
+        require(msg.sender == owner, "Not authorized");
+        _;
+    }
+    
+    modifier hasSubmittedData() {
+        require(creditSubmissions[msg.sender].hasSubmitted, "No credit data submitted");
+        _;
+    }
+    
+    constructor() {
+        owner = msg.sender;
+        totalEvaluations = 0;
+    }
+    
+    /**
+     * @dev Submit encrypted credit data for evaluation
+     * @param _encryptedIncome Monthly income (encrypted)
+     * @param _encryptedDebt Total debt amount (encrypted)
+     * @param _encryptedAge User's age (encrypted)
+     * @param _encryptedCreditHistory Credit history length in years (encrypted)
+     * @param _encryptedPaymentHistory Payment history score 1-10 (encrypted)
+     */
+    function submitCreditData(
+        euint32 _encryptedIncome,
+        euint32 _encryptedDebt,
+        euint8 _encryptedAge,
+        euint8 _encryptedCreditHistory,
+        euint8 _encryptedPaymentHistory
+    ) external {
+        require(!creditSubmissions[msg.sender].hasSubmitted, "Data already submitted");
+        
+        creditSubmissions[msg.sender] = CreditData({
+            encryptedIncome: _encryptedIncome,
+            encryptedDebt: _encryptedDebt,
+            encryptedAge: _encryptedAge,
+            encryptedCreditHistory: _encryptedCreditHistory,
+            encryptedPaymentHistory: _encryptedPaymentHistory,
+            hasSubmitted: true,
+            submissionTime: block.timestamp
+        });
+        
+        // Grant access permissions
+        FHE.allowThis(_encryptedIncome);
+        FHE.allowThis(_encryptedDebt);
+        FHE.allowThis(_encryptedAge);
+        FHE.allowThis(_encryptedCreditHistory);
+        FHE.allowThis(_encryptedPaymentHistory);
+        
+        // Allow user to access their own data
+        FHE.allow(_encryptedIncome, msg.sender);
+        FHE.allow(_encryptedDebt, msg.sender);
+        FHE.allow(_encryptedAge, msg.sender);
+        FHE.allow(_encryptedCreditHistory, msg.sender);
+        FHE.allow(_encryptedPaymentHistory, msg.sender);
+        
+        emit CreditDataSubmitted(msg.sender, block.timestamp);
+    }
+    
+    /**
+     * @dev Evaluate credit score using encrypted computation
+     * @param user Address of the user to evaluate
+     */
+    function evaluateCreditScore(address user) external hasSubmittedData {
+        require(msg.sender == user || msg.sender == owner, "Not authorized to evaluate");
+        require(!creditEvaluations[user].isEvaluated, "Already evaluated");
+        
+        CreditData storage data = creditSubmissions[user];
+        
+        // Initialize base score
+        euint8 score = FHE.asEuint8(FAIR_SCORE);
+        
+        // Age factor: older age generally means more stability
+        // If age > 25, add 1 point
+        ebool ageBonus = FHE.gt(data.encryptedAge, FHE.asEuint8(25));
+        score = FHE.select(ageBonus, FHE.add(score, FHE.asEuint8(1)), score);
+        
+        // If age > 40, add another point for extra stability
+        ebool matureAgeBonus = FHE.gt(data.encryptedAge, FHE.asEuint8(40));
+        score = FHE.select(matureAgeBonus, FHE.add(score, FHE.asEuint8(1)), score);
+        
+        // Credit history factor: longer history is better
+        // If credit history > 5 years, add 1 point
+        ebool historyBonus = FHE.gt(data.encryptedCreditHistory, FHE.asEuint8(5));
+        score = FHE.select(historyBonus, FHE.add(score, FHE.asEuint8(1)), score);
+        
+        // If credit history > 10 years, add another point
+        ebool longHistoryBonus = FHE.gt(data.encryptedCreditHistory, FHE.asEuint8(10));
+        score = FHE.select(longHistoryBonus, FHE.add(score, FHE.asEuint8(1)), score);
+        
+        // Payment history factor: good payment history adds points
+        // If payment history > 7, add 1 point
+        ebool paymentBonus = FHE.gt(data.encryptedPaymentHistory, FHE.asEuint8(7));
+        score = FHE.select(paymentBonus, FHE.add(score, FHE.asEuint8(1)), score);
+        
+        // If payment history is perfect (10), add another point
+        ebool perfectPayment = FHE.eq(data.encryptedPaymentHistory, FHE.asEuint8(10));
+        score = FHE.select(perfectPayment, FHE.add(score, FHE.asEuint8(1)), score);
+        
+        // Debt penalty: high debt reduces score
+        // If debt > 20,000, subtract 1 point
+        ebool highDebt = FHE.gt(data.encryptedDebt, FHE.asEuint32(20000));
+        score = FHE.select(highDebt, FHE.sub(score, FHE.asEuint8(1)), score);
+        
+        // If debt > 50,000, subtract another point
+        ebool veryHighDebt = FHE.gt(data.encryptedDebt, FHE.asEuint32(50000));
+        score = FHE.select(veryHighDebt, FHE.sub(score, FHE.asEuint8(1)), score);
+        
+        // Simple debt-to-income comparison (without division)
+        // If debt > income, subtract 2 points (high risk)
+        ebool debtExceedsIncome = FHE.gt(data.encryptedDebt, data.encryptedIncome);
+        score = FHE.select(debtExceedsIncome, FHE.sub(score, FHE.asEuint8(2)), score);
+        
+        // If debt is more than twice the income, subtract another point
+        euint32 doubleIncome = FHE.mul(data.encryptedIncome, FHE.asEuint32(2));
+        ebool debtExceedsDoubleIncome = FHE.gt(data.encryptedDebt, doubleIncome);
+        score = FHE.select(debtExceedsDoubleIncome, FHE.sub(score, FHE.asEuint8(1)), score);
+        
+        // Income bonus: high income adds stability
+        // If income > 5000, add 1 point
+        ebool incomeBonus = FHE.gt(data.encryptedIncome, FHE.asEuint32(5000));
+        score = FHE.select(incomeBonus, FHE.add(score, FHE.asEuint8(1)), score);
+        
+        // If income > 10000, add another point for high income
+        ebool highIncomeBonus = FHE.gt(data.encryptedIncome, FHE.asEuint32(10000));
+        score = FHE.select(highIncomeBonus, FHE.add(score, FHE.asEuint8(1)), score);
+        
+        // Ensure score doesn't go below 1 or above 5
+        ebool scoreTooLow = FHE.lt(score, FHE.asEuint8(1));
+        score = FHE.select(scoreTooLow, FHE.asEuint8(1), score);
+        
+        ebool scoreTooHigh = FHE.gt(score, FHE.asEuint8(5));
+        score = FHE.select(scoreTooHigh, FHE.asEuint8(5), score);
+        
+        // Loan approval logic: approve if score >= 3 (FAIR_SCORE)
+        ebool approved = FHE.ge(score, FHE.asEuint8(FAIR_SCORE));
+        
+        creditEvaluations[user] = CreditEvaluation({
+            encryptedScore: score,
+            isEvaluated: true,
+            evaluationTime: block.timestamp,
+            isApproved: approved
+        });
+        
+        // Grant access permissions
+        FHE.allowThis(score);
+        FHE.allowThis(approved);
+        FHE.allow(score, user);
+        FHE.allow(approved, user);
+        
+        totalEvaluations++;
+        
+        emit CreditEvaluated(user, block.timestamp);
+    }
+    
+    /**
+     * @dev Request loan approval based on credit evaluation
+     */
+    function requestLoanApproval() external hasSubmittedData {
+        require(creditEvaluations[msg.sender].isEvaluated, "Credit not evaluated yet");
+        
+        emit LoanApprovalRequested(msg.sender, block.timestamp);
+    }
+    
+    /**
+     * @dev Get user's encrypted credit score
+     * @param user Address of the user
+     * @return Encrypted credit score
+     */
+    function getCreditScore(address user) external view returns (euint8) {
+        require(creditEvaluations[user].isEvaluated, "Not evaluated");
+        require(msg.sender == user || msg.sender == owner, "Not authorized");
+        
+        return creditEvaluations[user].encryptedScore;
+    }
+    
+    /**
+     * @dev Get user's loan approval status
+     * @param user Address of the user
+     * @return Encrypted approval status
+     */
+    function getLoanApprovalStatus(address user) external view returns (ebool) {
+        require(creditEvaluations[user].isEvaluated, "Not evaluated");
+        require(msg.sender == user || msg.sender == owner, "Not authorized");
+        
+        return creditEvaluations[user].isApproved;
+    }
+    
+    /**
+     * @dev Check if user has submitted credit data
+     * @param user Address of the user
+     * @return Boolean indicating if data is submitted
+     */
+    function hasSubmittedCreditData(address user) external view returns (bool) {
+        return creditSubmissions[user].hasSubmitted;
+    }
+    
+    /**
+     * @dev Check if user's credit has been evaluated
+     * @param user Address of the user
+     * @return Boolean indicating if evaluation is complete
+     */
+    function isCreditEvaluated(address user) external view returns (bool) {
+        return creditEvaluations[user].isEvaluated;
+    }
+    
+    /**
+     * @dev Get evaluation statistics
+     * @return Total number of evaluations processed
+     */
+    function getEvaluationStats() external view returns (uint256) {
+        return totalEvaluations;
+    }
+    
+    /**
+     * @dev Update user's credit data (only if not yet evaluated)
+     */
+    function updateCreditData(
+        euint32 _encryptedIncome,
+        euint32 _encryptedDebt,
+        euint8 _encryptedAge,
+        euint8 _encryptedCreditHistory,
+        euint8 _encryptedPaymentHistory
+    ) external {
+        require(creditSubmissions[msg.sender].hasSubmitted, "No data to update");
+        require(!creditEvaluations[msg.sender].isEvaluated, "Cannot update after evaluation");
+        
+        creditSubmissions[msg.sender].encryptedIncome = _encryptedIncome;
+        creditSubmissions[msg.sender].encryptedDebt = _encryptedDebt;
+        creditSubmissions[msg.sender].encryptedAge = _encryptedAge;
+        creditSubmissions[msg.sender].encryptedCreditHistory = _encryptedCreditHistory;
+        creditSubmissions[msg.sender].encryptedPaymentHistory = _encryptedPaymentHistory;
+        
+        // Grant access permissions
+        FHE.allowThis(_encryptedIncome);
+        FHE.allowThis(_encryptedDebt);
+        FHE.allowThis(_encryptedAge);
+        FHE.allowThis(_encryptedCreditHistory);
+        FHE.allowThis(_encryptedPaymentHistory);
+        
+        FHE.allow(_encryptedIncome, msg.sender);
+        FHE.allow(_encryptedDebt, msg.sender);
+        FHE.allow(_encryptedAge, msg.sender);
+        FHE.allow(_encryptedCreditHistory, msg.sender);
+        FHE.allow(_encryptedPaymentHistory, msg.sender);
+    }
+}

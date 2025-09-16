@@ -1,0 +1,73 @@
+{
+  "name": "credit-analyzer",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Confidential credit evaluation system using Zama's FHE technology",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "start": "vite preview",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "ethers": "6.15.0",
+    "fhevmjs": "0.6.2",
+    "react": "18.2.0",
+    "react-dom": "18.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "20.10.4",
+    "@types/react": "18.2.66",
+    "@types/react-dom": "18.2.22",
+    "@vitejs/plugin-react": "4.2.1",
+    "buffer": "^6.0.3",
+    "process": "^0.11.10",
+    "typescript": "5.2.2",
+    "vite": "^5.4.20",
+    "vite-plugin-node-polyfills": "^0.22.0"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0"
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/AidenKuhn/CreditAnalyzer.git"
+  },
+  "homepage": "https://credit-analyzer-zama.vercel.app",
+  "bugs": {
+    "url": "https://github.com/AidenKuhn/CreditAnalyzer/issues"
+  },
+  "keywords": [
+    "fhe",
+    "privacy",
+    "credit-scoring",
+    "blockchain",
+    "encryption",
+    "zama",
+    "ethereum",
+    "react",
+    "typescript",
+    "vite",
+    "vercel",
+    "web3"
+  ],
+  "author": {
+    "name": "Credit Analyzer Team",
+    "url": "https://github.com/AidenKuhn"
+  },
+  "license": "MIT"
+}
