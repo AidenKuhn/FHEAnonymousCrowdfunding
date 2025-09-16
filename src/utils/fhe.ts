@@ -90,16 +90,18 @@ export async function encryptUint8(value: number): Promise<Uint8Array> {
 }
 
 /**
- * Convert encrypted data to bytes32 for contract call
+ * Convert encrypted data to uint256 for contract call
  */
-export function encryptedToBytes32(encrypted: Uint8Array): string {
-  // Take first 32 bytes and convert to hex string
+export function encryptedToUint256(encrypted: Uint8Array): string {
+  // Take first 32 bytes and convert to hex string, then to uint256
   const bytes = encrypted.slice(0, 32)
   // Pad to 32 bytes if needed
   const paddedBytes = new Uint8Array(32)
   paddedBytes.set(bytes)
   
-  return '0x' + Array.from(paddedBytes).map(b => b.toString(16).padStart(2, '0')).join('')
+  // Convert bytes to BigInt and then to string
+  const hexString = '0x' + Array.from(paddedBytes).map(b => b.toString(16).padStart(2, '0')).join('')
+  return BigInt(hexString).toString()
 }
 
 /**
@@ -158,11 +160,11 @@ export async function encryptCreditData(data: {
   ])
   
   const result = {
-    encryptedIncome: encryptedToBytes32(encryptedIncome),
-    encryptedDebt: encryptedToBytes32(encryptedDebt),
-    encryptedAge: encryptedToBytes32(encryptedAge),
-    encryptedCreditHistory: encryptedToBytes32(encryptedCreditHistory),
-    encryptedPaymentHistory: encryptedToBytes32(encryptedPaymentHistory)
+    encryptedIncome: encryptedToUint256(encryptedIncome),
+    encryptedDebt: encryptedToUint256(encryptedDebt),
+    encryptedAge: encryptedToUint256(encryptedAge),
+    encryptedCreditHistory: encryptedToUint256(encryptedCreditHistory),
+    encryptedPaymentHistory: encryptedToUint256(encryptedPaymentHistory)
   }
   
   console.log('✅ Credit data encryption completed:')
